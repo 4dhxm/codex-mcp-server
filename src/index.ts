@@ -139,6 +139,52 @@ function startNgrok(port: number): Promise<string> {
   });
 }
 
+/**
+ * Spawns localhost.run (SSH-based reverse tunnel) to create a public secure URL
+ * without warnings or account registration.
+ */
+function startLocalhostRun(port: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    console.error(`Starting localhost.run tunnel for port ${port}...`);
+    const sshProcess = spawn('ssh', [
+      '-o',
+      'StrictHostKeyChecking=no',
+      '-R',
+      `80:localhost:${port}`,
+      'nokey@localhost.run',
+    ]);
+    let resolved = false;
+
+    sshProcess.stdout.on('data', (data) => {
+      const output = data.toString();
+      // Look for lhr.life HTTPS URL: e.g. "https://xxxx.lhr.life"
+      const match = output.match(/https:\/\/[a-zA-Z0-9.-]+\.lhr\.life/);
+      if (match && !resolved) {
+        resolved = true;
+        resolve(match[0]);
+      }
+    });
+
+    // Timeout after 15 seconds
+    setTimeout(() => {
+      if (!resolved) {
+        sshProcess.kill();
+        reject(new Error('localhost.run tunnel startup timed out'));
+      }
+    }, 15000);
+
+    sshProcess.on('error', (err) => {
+      reject(err);
+    });
+
+    sshProcess.on('exit', (code) => {
+      if (!resolved) {
+        reject(new Error(`localhost.run tunnel exited with code ${code}`));
+      }
+    });
+  });
+}
+
 // Parse command line arguments
 const args = process.argv.slice(2);
 const sseMode =
@@ -151,6 +197,13 @@ const port =
     ? parseInt(args[portIndex + 1], 10)
     : 3000;
 const tunnelMode = args.includes('--tunnel') || args.includes('--ngrok');
+
+// Tunnel provider selection: default is 'localhost-run' to avoid warning pages
+const providerIndex = args.indexOf('--tunnel-provider');
+const tunnelProvider =
+  providerIndex !== -1 && args[providerIndex + 1]
+    ? args[providerIndex + 1]
+    : 'localhost-run';
 
 // API Key configuration
 const apiKeyIndex = args.indexOf('--api-key');
@@ -223,15 +276,20 @@ async function run() {
 
       if (tunnelMode) {
         try {
-          const publicUrl = await startNgrok(port);
+          let publicUrl: string;
+          if (tunnelProvider === 'ngrok') {
+            publicUrl = await startNgrok(port);
+          } else {
+            publicUrl = await startLocalhostRun(port);
+          }
           console.error(`\n==============================================`);
-          console.error(`ngrok tunnel established successfully!`);
+          console.error(`${tunnelProvider} tunnel established successfully!`);
           console.error(`Public URL: ${publicUrl}`);
           console.error(`- SSE endpoint: ${publicUrl}/sse?apiKey=${apiKey}`);
           console.error(`- Message endpoint: ${publicUrl}/messages?apiKey=${apiKey}`);
           console.error(`==============================================\n`);
         } catch (err: any) {
-          console.error('Failed to start ngrok tunnel:', err.message || err);
+          console.error(`Failed to start ${tunnelProvider} tunnel:`, err.message || err);
         }
       }
     });
