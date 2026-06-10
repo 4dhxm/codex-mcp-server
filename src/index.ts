@@ -228,10 +228,11 @@ async function run() {
     // Authentication middleware
     if (apiKey) {
       app.use((req: any, res: any, next: any) => {
+        const parsedUrl = new URL(req.url || '', 'http://localhost');
         const requestKey =
           req.headers['x-api-key'] ||
           req.headers['authorization']?.replace('Bearer ', '') ||
-          req.query.apiKey;
+          parsedUrl.searchParams.get('apiKey');
 
         if (requestKey !== apiKey) {
           console.error(`Unauthorized access attempt from ${req.ip} blocked`);
@@ -260,7 +261,8 @@ async function run() {
     });
 
     app.post('/messages', async (req: any, res: any) => {
-      const sessionId = req.query.sessionId as string;
+      const parsedUrl = new URL(req.url || '', 'http://localhost');
+      const sessionId = parsedUrl.searchParams.get('sessionId') as string;
       const transport = transports[sessionId];
       if (transport) {
         await transport.handlePostMessage(req, res, req.body);
