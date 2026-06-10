@@ -1,7 +1,6 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
-import { createMcpExpressApp } from '@modelcontextprotocol/sdk/server/express.js';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -9,6 +8,8 @@ import {
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import express from 'express';
+import cors from 'cors';
 import { tools } from './tools.js';
 
 // Setup MCP server instance
@@ -222,8 +223,11 @@ if (sseMode && !apiKey) {
 // Start the server using the configured transport
 async function run() {
   if (sseMode) {
-    const app = createMcpExpressApp() as any;
+    const app = express();
     const transports: Record<string, SSEServerTransport> = {};
+
+    app.use(cors());
+    app.use(express.json());
 
     // Authentication middleware
     if (apiKey) {

@@ -16,6 +16,8 @@
     "zod-to-json-schema": "^3.24.6"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
     "@types/node": "^22.19.20",
     "typescript": "^5.9.2"
   }
