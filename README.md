@@ -8,23 +8,6 @@ An open-source [Model Context Protocol](https://modelcontextprotocol.io/) server
 
 Run coding tasks, manage conversation threads, fork sessions, and browse historical rolls — all through standard MCP tooling.
 
-## Architecture
-
-```
-  MCP Client (Claude / Cursor / Poke)
-               │
-               ▼  MCP Protocol (stdio or Streamable HTTP)
-        ┌──────────────────┐
-        │ Codex MCP Server │ ← this project
-        └──────────────────┘
-               │
-               ▼  @openai/codex-sdk
-          [Codex CLI]
-               │
-               ▼  OpenAI API
-          [GPT-5.x / o3 / o1]
-```
-
 ## Prerequisites
 
 - **Node.js 22+** (required for native SQLite bindings)
@@ -39,11 +22,10 @@ npm install
 npm run build
 ```
 
-## Transports
+## Running the Server
 
-The server supports three transport modes:
-
-### 1. Stdio (Default — for local MCP clients)
+### 1. Local Transport (stdio)
+For MCP clients running on the same machine (like Claude Desktop or Cursor).
 
 ```bash
 node dist/index.js
@@ -62,50 +44,47 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 }
 ```
 
-### 2. Streamable HTTP (Recommended for remote connections)
+### 2. Remote Transport with Auto-Tunnel (Streamable HTTP + localhost.run)
+For exposing your local Codex installation to remote MCP clients (like Poke or a remote device) **without dealing with routers or ngrok accounts**.
 
 ```bash
-node dist/index.js --http
-node dist/index.js --http --port 8080
-node dist/index.js --http --api-key my-secret-token
+node dist/index.js --http --tunnel
+```
+*This starts the server and automatically spawns a free SSH reverse tunnel via `localhost.run`.*
+
+You can also explicitly set your API key:
+```bash
+node dist/index.js --http --tunnel --api-key my-secret-token
 ```
 
-This starts a standard HTTP server at `POST /mcp` using the modern Streamable HTTP transport. Connect from any MCP client that supports remote servers:
-
+You will see output like this:
 ```
-URL:     http://localhost:3000/mcp
+==============================================
+🌐 localhost.run tunnel established successfully!
+Public URL: https://a1b2c3d4.lhr.life
+MCP URL:    https://a1b2c3d4.lhr.life/mcp
+==============================================
+```
+
+Connect from your remote MCP client:
+```
+URL:     https://a1b2c3d4.lhr.life/mcp
 Type:    Streamable HTTP
 Auth:    Bearer <your-api-key>
 ```
 
-For remote MCP clients like Claude Desktop:
-
-```json
-{
-  "mcpServers": {
-    "codex": {
-      "url": "https://your-server.onrender.com/mcp",
-      "headers": {
-        "Authorization": "Bearer your-api-key"
-      }
-    }
-  }
-}
-```
-
-### 3. SSE (Legacy — deprecated)
+### 3. Local HTTP Network Transport
+To run over HTTP without a public tunnel (for your local network):
 
 ```bash
-node dist/index.js --sse
+node dist/index.js --http --port 8080
 ```
-
-SSE transport is deprecated by the MCP specification. Use `--http` instead.
 
 ## Authentication
 
-API key auth is enabled by default for HTTP and SSE transports.
+API key auth is enabled by default for HTTP mode to protect your local machine from unauthorized remote access.
 
-**Provide a key** via `--api-key <key>` flag or `CODEX_MCP_API_KEY` env var. If neither is set, a random key is generated and printed on startup.
+**Provide a key** via `--api-key <key>` flag or `CODEX_MCP_API_KEY` env var. If neither is set, a random secure key is generated and printed on startup.
 
 **How clients send the key** — any of these work:
 
@@ -115,52 +94,7 @@ API key auth is enabled by default for HTTP and SSE transports.
 | `x-api-key` header | `x-api-key: sk-abc123` |
 | Query parameter | `?apiKey=sk-abc123` |
 
-The server intentionally avoids returning `WWW-Authenticate` headers and does not serve OAuth discovery endpoints (`.well-known/*`). This prevents MCP clients from attempting OAuth flows and ensures simple Bearer token auth works cleanly.
-
-## Deployment
-
-### Render (Recommended — Free Tier)
-
-The easiest way to deploy remotely:
-
-1. Push this repo to GitHub
-2. Go to [render.com](https://render.com) → **New Web Service** → connect your repo
-3. Render auto-detects the `render.yaml` blueprint:
-   - Build: `npm install && npm run build`
-   - Start: `node dist/index.js --http`
-4. Set environment variables in the Render dashboard:
-   - `CODEX_MCP_API_KEY` — your API key
-   - `OPENAI_API_KEY` — for the Codex SDK
-
-Your server URL will be `https://codex-mcp-server.onrender.com/mcp`.
-
-> **Note:** Free-tier services sleep after 15 minutes of inactivity. First request after sleep takes ~30s. Use [UptimeRobot](https://uptimerobot.com) to ping `/health` every 5 minutes to keep it awake.
-
-### Other Hosting Options
-
-| Platform | Free? | Notes |
-|----------|-------|-------|
-| **Render** | ✅ 750 hrs/mo | Best option — real Node.js process, no request timeout, unbuffered streaming |
-| **Cloudflare Workers** | ✅ 100K req/day | First-class MCP support, but requires rewriting to Workers API |
-| **Hugging Face Spaces** | ✅ | Docker container, 48h sleep timeout, use port 7860 |
-| **Google Cloud Run** | ✅ 2M req/mo | Good but more complex setup |
-| Vercel | ⚠️ | Serverless — 300s timeout, buffering issues with streaming |
-| Railway | ❌ | No free tier |
-| Fly.io | ❌ | No free tier |
-
-### Manual Tunneling
-
-For quick testing without deploying:
-
-```bash
-# Start the server
-node dist/index.js --http --api-key my-key
-
-# In another terminal, tunnel with ngrok (paid) or alternatives
-ngrok http 3000
-# or
-ssh -R 80:localhost:3000 nokey@localhost.run
-```
+The server intentionally avoids returning `WWW-Authenticate` headers to prevent MCP clients from attempting OAuth flows, ensuring simple Bearer token auth works cleanly.
 
 ## Tools
 
@@ -168,20 +102,13 @@ ssh -R 80:localhost:3000 nokey@localhost.run
 |------|-------------|
 | `codex_task` / `codex_run` | Run a coding task in a new thread |
 | `codex_start_thread` | Initialize a thread without running a turn |
-| `codex_run_turn` / `codex_continue` / `codex_continue_thread` | Send a follow-up prompt to an existing thread |
+| `codex_run_turn` / `codex_continue` | Send a follow-up prompt to an existing thread |
 | `codex_list_threads` | List active/archived threads from local SQLite |
 | `codex_get_thread` | Get metadata and conversation history |
 | `codex_fork_thread` | Clone a thread's history into a new session |
 | `codex_archive_thread` | Archive a thread |
 | `codex_unarchive_thread` | Unarchive a thread |
 | `codex_interrupt` / `codex_interrupt_turn` | Abort a running turn |
-
-## Development
-
-```bash
-npm run watch   # auto-compile on changes
-npm run dev     # build + start in HTTP mode
-```
 
 ## License
 

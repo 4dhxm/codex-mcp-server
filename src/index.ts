@@ -10,6 +10,7 @@ import { zodToJsonSchema } from 'zod-to-json-schema';
 import { randomUUID } from 'node:crypto';
 import express from 'express';
 import cors from 'cors';
+import { spawn } from 'node:child_process';
 import { tools } from './tools.js';
 import { createAuthMiddleware, blockOAuthDiscovery } from './auth.js';
 
@@ -59,6 +60,52 @@ function createServer(): Server {
   return server;
 }
 
+/**
+ * Spawns localhost.run (SSH-based reverse tunnel) to create a public secure URL
+ * without warnings or account registration.
+ */
+function startLocalhostRun(port: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    console.error(`\n🔄 Starting localhost.run tunnel for port ${port}...`);
+    const sshProcess = spawn('ssh', [
+      '-o',
+      'StrictHostKeyChecking=no',
+      '-R',
+      `80:localhost:${port}`,
+      'nokey@localhost.run',
+    ]);
+    let resolved = false;
+
+    sshProcess.stdout.on('data', (data) => {
+      const output = data.toString();
+      // Look for lhr.life HTTPS URL: e.g. "https://xxxx.lhr.life"
+      const match = output.match(/https:\/\/[a-zA-Z0-9.-]+\.lhr\.life/);
+      if (match && !resolved) {
+        resolved = true;
+        resolve(match[0]);
+      }
+    });
+
+    // Timeout after 15 seconds
+    setTimeout(() => {
+      if (!resolved) {
+        sshProcess.kill();
+        reject(new Error('localhost.run tunnel startup timed out'));
+      }
+    }, 15000);
+
+    sshProcess.on('error', (err) => {
+      reject(err);
+    });
+
+    sshProcess.on('exit', (code) => {
+      if (!resolved) {
+        reject(new Error(`localhost.run tunnel exited with code ${code}`));
+      }
+    });
+  });
+}
+
 // ── CLI argument parsing ────────────────────────────────────────
 
 const args = process.argv.slice(2);
@@ -77,6 +124,8 @@ const transportMode = getFlag('http')
   : getFlag('sse')
     ? 'sse'
     : 'stdio';
+
+const tunnelMode = getFlag('tunnel');
 
 const port = parseInt(getFlagValue('port') || '3000', 10);
 
@@ -157,12 +206,25 @@ async function startHttpServer() {
     res.status(400).json({ error: 'Missing or invalid session ID for DELETE request' });
   });
 
-  app.listen(port, () => {
+  app.listen(port, async () => {
     console.error(`Codex MCP Server (Streamable HTTP) listening on port ${port}`);
     console.error(`  POST/GET/DELETE http://localhost:${port}/mcp`);
     console.error(`  Health check:   http://localhost:${port}/health`);
     if (apiKey) {
       console.error(`\n  Authorization: Bearer ${apiKey}`);
+    }
+
+    if (tunnelMode) {
+      try {
+        const publicUrl = await startLocalhostRun(port);
+        console.error(`\n==============================================`);
+        console.error(`🌐 localhost.run tunnel established successfully!`);
+        console.error(`Public URL: ${publicUrl}`);
+        console.error(`MCP URL:    ${publicUrl}/mcp`);
+        console.error(`==============================================\n`);
+      } catch (err: any) {
+        console.error(`Failed to start localhost.run tunnel:`, err.message || err);
+      }
     }
   });
 }
