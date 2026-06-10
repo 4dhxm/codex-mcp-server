@@ -8,6 +8,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { tools } from './tools.js';
 
 // Setup MCP server instance
@@ -127,11 +128,42 @@ const port =
     : 3000;
 const tunnelMode = args.includes('--tunnel') || args.includes('--ngrok');
 
+// API Key configuration
+const apiKeyIndex = args.indexOf('--api-key');
+let apiKey =
+  apiKeyIndex !== -1 && args[apiKeyIndex + 1]
+    ? args[apiKeyIndex + 1]
+    : process.env.CODEX_MCP_API_KEY;
+
+if (sseMode && !apiKey) {
+  // Auto-generate a secure random API key if none is provided
+  apiKey = randomUUID().replace(/-/g, '');
+  console.error(`\n🛡️  [SECURITY] No API key provided. Auto-generated a secure API key for this session:`);
+  console.error(`👉 API Key: ${apiKey}\n`);
+}
+
 // Start the server using the configured transport
 async function run() {
   if (sseMode) {
     const app = createMcpExpressApp() as any;
     const transports: Record<string, SSEServerTransport> = {};
+
+    // Authentication middleware
+    if (apiKey) {
+      app.use((req: any, res: any, next: any) => {
+        const requestKey =
+          req.headers['x-api-key'] ||
+          req.headers['authorization']?.replace('Bearer ', '') ||
+          req.query.apiKey;
+
+        if (requestKey !== apiKey) {
+          console.error(`Unauthorized access attempt from ${req.ip} blocked`);
+          res.status(401).send('Unauthorized: Invalid or missing API Key');
+          return;
+        }
+        next();
+      });
+    }
 
     app.get('/sse', async (req: any, res: any) => {
       console.error('SSE connection established');
@@ -167,8 +199,8 @@ async function run() {
           console.error(`\n==============================================`);
           console.error(`ngrok tunnel established successfully!`);
           console.error(`Public URL: ${publicUrl}`);
-          console.error(`- SSE endpoint: ${publicUrl}/sse`);
-          console.error(`- Message endpoint: ${publicUrl}/messages`);
+          console.error(`- SSE endpoint: ${publicUrl}/sse?apiKey=${apiKey}`);
+          console.error(`- Message endpoint: ${publicUrl}/messages?apiKey=${apiKey}`);
           console.error(`==============================================\n`);
         } catch (err: any) {
           console.error('Failed to start ngrok tunnel:', err.message || err);

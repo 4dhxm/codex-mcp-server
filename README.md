@@ -110,6 +110,17 @@ You can start the MCP server over HTTP/SSE instead of stdio. This is useful for 
   ```
   *This will start the local HTTP server, spawn an ngrok client in the background (using npx), poll for its public address, and print the resulting HTTPS endpoint.*
 
+* **Security & Authentication (API Keys)**:
+  To prevent unauthorized access to your local machine, API key authentication is enabled by default in SSE mode.
+  - **Auto-generated Key**: If you do not specify a key, the server automatically generates a cryptographically secure random session key and prints it on startup.
+  - **Explicit Key**: Set a custom key using the `--api-key <key>` flag or the `CODEX_MCP_API_KEY` environment variable:
+    ```bash
+    node dist/index.js --sse --tunnel --api-key my-secure-token
+    ```
+  - **Connecting from Clients**: Ensure your MCP client includes the API key in one of the following ways:
+    - **Header**: `x-api-key: my-secure-token` or `Authorization: Bearer my-secure-token`
+    - **Query Parameter**: Append `?apiKey=my-secure-token` to the end of the URL (e.g. `https://<tunnel-id>.ngrok-free.app/sse?apiKey=my-secure-token`). This is highly recommended for cloud clients (like Poke) that configure connection streams using raw URLs.
+
 ---
 
 ## Tools Exposed
