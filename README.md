@@ -91,6 +91,25 @@ Add the server configuration to your `claude_desktop_config.json` file.
    - **Command**: `node /absolute/path/to/codex-mcp-server/dist/index.js`
 4. Click **Save**.
 
+### 3. SSE / HTTP Mode (with ngrok)
+You can start the MCP server over HTTP/SSE instead of stdio. This is useful for remote connections, hosting the server on a cloud VM, or testing from remote devices.
+
+* **Start in SSE Mode on default port (3000)**:
+  ```bash
+  node dist/index.js --sse
+  ```
+
+* **Start in SSE Mode on a custom port**:
+  ```bash
+  node dist/index.js --sse --port 8080
+  ```
+
+* **Start with automatic ngrok tunnel**:
+  ```bash
+  node dist/index.js --sse --tunnel
+  ```
+  *This will start the local HTTP server, spawn an ngrok client in the background (using npx), poll for its public address, and print the resulting HTTPS endpoint.*
+
 ---
 
 ## Tools Exposed
