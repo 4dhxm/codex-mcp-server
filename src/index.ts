@@ -11,8 +11,16 @@ import { randomUUID } from 'node:crypto';
 import express from 'express';
 import cors from 'cors';
 import { spawn } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { tools } from './tools.js';
 import { createAuthMiddleware, blockOAuthDiscovery } from './auth.js';
+
+// Get __dirname equivalent for ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const projectRoot = path.resolve(__dirname, '..');
 
 function createServer(): Server {
   const server = new Server(
@@ -69,7 +77,8 @@ function startLocalhostRun(port: number): Promise<string> {
     console.error(`\n🔄 Starting localhost.run tunnel for port ${port}...`);
     const sshProcess = spawn('ssh', [
       '-o', 'StrictHostKeyChecking=no',
-      '-o', 'ServerAliveInterval=60',
+      '-o', 'ServerAliveInterval=15',
+      '-o', 'ServerAliveCountMax=3',
       '-R',
       `80:localhost:${port}`,
       'nokey@localhost.run',
@@ -133,9 +142,29 @@ let apiKey =
   getFlagValue('api-key') || process.env.CODEX_MCP_API_KEY;
 
 if (transportMode !== 'stdio' && !apiKey) {
-  apiKey = randomUUID().replace(/-/g, '');
-  console.error(`\n🛡️  No API key provided. Generated one for this session:`);
-  console.error(`👉 ${apiKey}\n`);
+  // Check if we already saved one to .env previously
+  const envPath = path.join(projectRoot, '.env');
+  if (fs.existsSync(envPath)) {
+    const envContent = fs.readFileSync(envPath, 'utf8');
+    const match = envContent.match(/CODEX_MCP_API_KEY=(.+)/);
+    if (match && match[1]) {
+      apiKey = match[1].trim();
+    }
+  }
+
+  if (!apiKey) {
+    apiKey = randomUUID().replace(/-/g, '');
+    
+    // Save it to .env so it's persistent across restarts
+    const envLine = `CODEX_MCP_API_KEY=${apiKey}\n`;
+    fs.appendFileSync(envPath, envLine);
+    
+    console.error(`\n🛡️  No API key provided. Generated a secure persistent key:`);
+    console.error(`👉 ${apiKey}`);
+    console.error(`💾 Saved to .env file for future runs.\n`);
+  } else {
+    console.error(`\n🔑 Loaded persistent API key from .env file.\n`);
+  }
 }
 
 // ── Streamable HTTP transport (recommended for production) ──────
