@@ -68,8 +68,8 @@ function startLocalhostRun(port: number): Promise<string> {
   return new Promise((resolve, reject) => {
     console.error(`\n🔄 Starting localhost.run tunnel for port ${port}...`);
     const sshProcess = spawn('ssh', [
-      '-o',
-      'StrictHostKeyChecking=no',
+      '-o', 'StrictHostKeyChecking=no',
+      '-o', 'ServerAliveInterval=60',
       '-R',
       `80:localhost:${port}`,
       'nokey@localhost.run',
