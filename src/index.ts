@@ -191,7 +191,11 @@ async function run() {
 
     app.get('/sse', async (req: any, res: any) => {
       console.error('SSE connection established');
-      const transport = new SSEServerTransport('/messages', res);
+      
+      // Inject apiKey into the relative redirection endpoint so subsequent POST requests
+      // maintain authentication when resolved by standard MCP clients
+      const messageEndpoint = apiKey ? `/messages?apiKey=${apiKey}` : '/messages';
+      const transport = new SSEServerTransport(messageEndpoint, res);
       transports[transport.sessionId] = transport;
 
       res.on('close', () => {
