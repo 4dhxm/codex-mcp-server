@@ -44,7 +44,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
   const tool = tools.find((t) => t.name === name);
   if (!tool) {
-    throw new Error(`Tool not found: ${name}`);
+    throw new Error("Tool not found: " + name);
   }
 
   try {
@@ -72,6 +72,15 @@ function startNgrok(port: number): Promise<string> {
     console.error(`Starting ngrok tunnel for port ${port}...`);
     const ngrokProcess = spawn('npx', ['ngrok', 'http', port.toString()]);
     let resolved = false;
+    let errorOutput = '';
+
+    // Capture stdout and stderr to parse error reasons
+    ngrokProcess.stdout.on('data', (data) => {
+      errorOutput += data.toString();
+    });
+    ngrokProcess.stderr.on('data', (data) => {
+      errorOutput += data.toString();
+    });
 
     const interval = setInterval(async () => {
       try {
@@ -109,7 +118,22 @@ function startNgrok(port: number): Promise<string> {
     ngrokProcess.on('exit', (code) => {
       clearInterval(interval);
       if (!resolved) {
-        reject(new Error(`ngrok exited with code ${code}`));
+        let msg = `ngrok exited with code ${code}.`;
+        
+        console.error(`\n❌ [ngrok Error] Tunnel startup failed.`);
+        if (errorOutput) {
+          console.error(`Error Output:\n${errorOutput.trim()}`);
+        }
+        
+        // Print helper setup instructions to minimize user friction
+        console.error(`\n💡 This usually means your ngrok authtoken is missing or invalid.`);
+        console.error(`To fix this and authenticate ngrok (free):`);
+        console.error(`1. Sign up/Log in at: https://dashboard.ngrok.com`);
+        console.error(`2. Copy your Authtoken from: https://dashboard.ngrok.com/get-started/your-authtoken`);
+        console.error(`3. Save the token locally by running:`);
+        console.error(`   npx ngrok config add-authtoken <YOUR_TOKEN>\n`);
+        
+        reject(new Error(msg));
       }
     });
   });
