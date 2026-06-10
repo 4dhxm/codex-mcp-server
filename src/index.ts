@@ -1,10 +1,13 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
+import { createMcpExpressApp } from '@modelcontextprotocol/sdk/server/express.js';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { zodToJsonSchema } from 'zod-to-json-schema';
+import { spawn } from 'node:child_process';
 import { tools } from './tools.js';
 
 // Setup MCP server instance
@@ -60,11 +63,124 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 });
 
-// Connect stdio transport and handle shutdown gracefully
+/**
+ * Spawns ngrok locally and polls its admin API to extract the public tunnel URL.
+ */
+function startNgrok(port: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    console.error(`Starting ngrok tunnel for port ${port}...`);
+    const ngrokProcess = spawn('npx', ['ngrok', 'http', port.toString()]);
+    let resolved = false;
+
+    const interval = setInterval(async () => {
+      try {
+        const response = await fetch('http://127.0.0.1:4040/api/tunnels');
+        if (response.ok) {
+          const data = (await response.json()) as any;
+          const tunnel = data.tunnels?.find(
+            (t: any) => t.proto === 'https' || t.proto === 'http'
+          );
+          if (tunnel && tunnel.public_url) {
+            clearInterval(interval);
+            resolved = true;
+            resolve(tunnel.public_url);
+          }
+        }
+      } catch (err) {
+        // API not ready yet
+      }
+    }, 1000);
+
+    // Timeout after 15 seconds
+    setTimeout(() => {
+      if (!resolved) {
+        clearInterval(interval);
+        ngrokProcess.kill();
+        reject(new Error('ngrok tunnel startup timed out'));
+      }
+    }, 15000);
+
+    ngrokProcess.on('error', (err) => {
+      clearInterval(interval);
+      reject(err);
+    });
+
+    ngrokProcess.on('exit', (code) => {
+      clearInterval(interval);
+      if (!resolved) {
+        reject(new Error(`ngrok exited with code ${code}`));
+      }
+    });
+  });
+}
+
+// Parse command line arguments
+const args = process.argv.slice(2);
+const sseMode =
+  args.includes('--sse') ||
+  (args.includes('--transport') &&
+    args[args.indexOf('--transport') + 1] === 'sse');
+const portIndex = args.indexOf('--port');
+const port =
+  portIndex !== -1 && args[portIndex + 1]
+    ? parseInt(args[portIndex + 1], 10)
+    : 3000;
+const tunnelMode = args.includes('--tunnel') || args.includes('--ngrok');
+
+// Start the server using the configured transport
 async function run() {
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-  console.error('Codex MCP Server running on stdio transport');
+  if (sseMode) {
+    const app = createMcpExpressApp() as any;
+    const transports: Record<string, SSEServerTransport> = {};
+
+    app.get('/sse', async (req: any, res: any) => {
+      console.error('SSE connection established');
+      const transport = new SSEServerTransport('/messages', res);
+      transports[transport.sessionId] = transport;
+
+      res.on('close', () => {
+        console.error(`SSE connection closed for session ${transport.sessionId}`);
+        delete transports[transport.sessionId];
+      });
+
+      await server.connect(transport);
+    });
+
+    app.post('/messages', async (req: any, res: any) => {
+      const sessionId = req.query.sessionId as string;
+      const transport = transports[sessionId];
+      if (transport) {
+        await transport.handlePostMessage(req, res, req.body);
+      } else {
+        res.status(400).send('No transport found for sessionId');
+      }
+    });
+
+    app.listen(port, async () => {
+      console.error(`Codex MCP Server listening on port ${port}`);
+      console.error(`- SSE establishment endpoint: http://localhost:${port}/sse`);
+      console.error(`- Message POST endpoint: http://localhost:${port}/messages`);
+
+      if (tunnelMode) {
+        try {
+          const publicUrl = await startNgrok(port);
+          console.error(`\n==============================================`);
+          console.error(`ngrok tunnel established successfully!`);
+          console.error(`Public URL: ${publicUrl}`);
+          console.error(`- SSE endpoint: ${publicUrl}/sse`);
+          console.error(`- Message endpoint: ${publicUrl}/messages`);
+          console.error(`==============================================\n`);
+        } catch (err: any) {
+          console.error('Failed to start ngrok tunnel:', err.message || err);
+        }
+      }
+    });
+  } else {
+    // Default: Stdio transport
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+    console.error('Codex MCP Server running on stdio transport');
+  }
 }
 
 run().catch((error) => {
