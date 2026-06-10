@@ -44,13 +44,18 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 }
 ```
 
-### 2. Remote Transport with Auto-Tunnel (Streamable HTTP + localhost.run)
-For exposing your local Codex installation to remote MCP clients (like Poke or a remote device) **without dealing with routers or ngrok accounts**.
+### 2. Remote Transport with Auto-Tunnel (Streamable HTTP + Cloudflare)
+For exposing your local Codex installation to remote MCP clients (like Poke or a remote device) **without dealing with routers or ngrok warning pages**.
+
+**Dependency:** You must have `cloudflared` installed. On macOS:
+```bash
+brew install cloudflared
+```
 
 ```bash
 node dist/index.js --http --tunnel
 ```
-*This starts the server and automatically spawns a free SSH reverse tunnel via `localhost.run`.*
+*This starts the server and automatically spawns a free, highly-stable Cloudflare Quick Tunnel.*
 
 You can also explicitly set your API key:
 ```bash
@@ -60,15 +65,15 @@ node dist/index.js --http --tunnel --api-key my-secret-token
 You will see output like this:
 ```
 ==============================================
-🌐 localhost.run tunnel established successfully!
-Public URL: https://a1b2c3d4.lhr.life
-MCP URL:    https://a1b2c3d4.lhr.life/mcp
+🌐 Cloudflare tunnel established successfully!
+Public URL: https://some-random-words.trycloudflare.com
+MCP URL:    https://some-random-words.trycloudflare.com/mcp
 ==============================================
 ```
 
 Connect from your remote MCP client:
 ```
-URL:     https://a1b2c3d4.lhr.life/mcp
+URL:     https://some-random-words.trycloudflare.com/mcp
 Type:    Streamable HTTP
 Auth:    Bearer <your-api-key>
 ```

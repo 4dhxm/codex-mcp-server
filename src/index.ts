@@ -69,47 +69,53 @@ function createServer(): Server {
 }
 
 /**
- * Spawns localhost.run (SSH-based reverse tunnel) to create a public secure URL
+ * Spawns Cloudflare Quick Tunnels (cloudflared) to create a highly stable public URL
  * without warnings or account registration.
  */
-function startLocalhostRun(port: number): Promise<string> {
+function startCloudflareTunnel(port: number): Promise<string> {
   return new Promise((resolve, reject) => {
-    console.error(`\n🔄 Starting localhost.run tunnel for port ${port}...`);
-    const sshProcess = spawn('ssh', [
-      '-o', 'StrictHostKeyChecking=no',
-      '-o', 'ServerAliveInterval=15',
-      '-o', 'ServerAliveCountMax=3',
-      '-R',
-      `80:localhost:${port}`,
-      'nokey@localhost.run',
-    ]);
+    console.error(`\n🔄 Starting Cloudflare tunnel for port ${port}...`);
+    
+    // cloudflared outputs its logs to stderr
+    const cfProcess = spawn('cloudflared', ['tunnel', '--url', `http://localhost:${port}`]);
     let resolved = false;
 
-    sshProcess.stdout.on('data', (data) => {
+    const handleOutput = (data: any) => {
       const output = data.toString();
-      // Look for lhr.life HTTPS URL: e.g. "https://xxxx.lhr.life"
-      const match = output.match(/https:\/\/[a-zA-Z0-9.-]+\.lhr\.life/);
+      // Look for trycloudflare.com HTTPS URL
+      const match = output.match(/https:\/\/[a-zA-Z0-9.-]+\.trycloudflare\.com/);
       if (match && !resolved) {
         resolved = true;
         resolve(match[0]);
       }
+    };
+
+    cfProcess.stderr.on('data', handleOutput);
+    cfProcess.stdout.on('data', handleOutput);
+
+    cfProcess.on('error', (err: any) => {
+      if (err.code === 'ENOENT') {
+        reject(new Error(
+          "cloudflared is not installed.\n\n" +
+          "👉 Please install it first by running:\n" +
+          "   brew install cloudflared\n"
+        ));
+      } else {
+        reject(err);
+      }
     });
 
-    // Timeout after 15 seconds
+    // Timeout after 15 seconds if no URL is found
     setTimeout(() => {
       if (!resolved) {
-        sshProcess.kill();
-        reject(new Error('localhost.run tunnel startup timed out'));
+        cfProcess.kill();
+        reject(new Error('Cloudflare tunnel startup timed out waiting for URL.'));
       }
     }, 15000);
 
-    sshProcess.on('error', (err) => {
-      reject(err);
-    });
-
-    sshProcess.on('exit', (code) => {
+    cfProcess.on('exit', (code) => {
       if (!resolved) {
-        reject(new Error(`localhost.run tunnel exited with code ${code}`));
+        reject(new Error(`Cloudflare tunnel exited prematurely with code ${code}`));
       }
     });
   });
@@ -245,14 +251,14 @@ async function startHttpServer() {
 
     if (tunnelMode) {
       try {
-        const publicUrl = await startLocalhostRun(port);
+        const publicUrl = await startCloudflareTunnel(port);
         console.error(`\n==============================================`);
-        console.error(`🌐 localhost.run tunnel established successfully!`);
+        console.error(`🌐 Cloudflare tunnel established successfully!`);
         console.error(`Public URL: ${publicUrl}`);
         console.error(`MCP URL:    ${publicUrl}/mcp`);
         console.error(`==============================================\n`);
       } catch (err: any) {
-        console.error(`Failed to start localhost.run tunnel:`, err.message || err);
+        console.error(`\n❌ Failed to start tunnel:`, err.message || err);
       }
     }
   });
