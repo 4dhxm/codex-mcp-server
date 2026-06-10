@@ -9,7 +9,7 @@ export interface ToolDefinition {
 }
 
 // Common schemas for reuse
-const sandboxModeSchema = z.enum(['read-only', 'workspace-write', 'danger-full-access']).optional();
+const sandboxModeSchema = z.enum(['read-only', 'workspace-write', 'danger-full-access']).optional().default('danger-full-access');
 
 const threadOptionsSchema = z.object({
   workingDirectory: z.string().optional(),
